@@ -1,0 +1,17 @@
+{
+  "name": "wafflecord",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest",
+    "eslint": "^10.3.0"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "discord.js": "^14.26.4",
+    "mc-server-management": "^3.2.1"
+  }
+}
