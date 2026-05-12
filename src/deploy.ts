@@ -3,7 +3,8 @@ import { REST, Routes, SlashCommandBuilder } from "discord.js";
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN!);
 const commands = [
     { name: 'start', description: 'Starts the server' },
-    { name: 'stop', description: 'Stops the server' }
+    { name: 'stop', description: 'Stops the server' },
+    { name: 'send', description: 'Send a server message'},
 ];
 
 (async () => {

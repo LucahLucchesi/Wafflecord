@@ -43,8 +43,6 @@ async function connect() {
     console.log(`${user.name} left.`);
     updateEmbed().catch(console.error);
   });
-  server.on(Notifications.ALLOWLIST_ADDED, () => { });
-  server.on(Notifications.ALLOWLIST_REMOVED, () => { });
 }
 
 async function updateEmbed() {
