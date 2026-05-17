@@ -1,45 +1,47 @@
 import { Client, Events, GatewayIntentBits, Message, MessageFlags, TextChannel } from "discord.js";
 import { WebSocketConnection, MinecraftServer, Notifications } from "mc-server-management";
-import { exec } from 'child_process';
+import { exec, execSync } from 'child_process';
 import { liveEmbed, deadEmbed } from "./embed";
+import { promisify } from "util";
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const execAsync = promisify(exec);
 
 let channel: TextChannel | null = null;
 let pinnedEmbed: Message | null = null;
 let embedUpdateInProgress = false; // Boolean lock for race-condition prevention
 
 let connection: WebSocketConnection | null = null;
-let server: MinecraftServer | null = null;
+let serverAPI: MinecraftServer | null = null;
 
-function closeConnection() {
+function disconnect() {
   if (!connection) return;
   connection.close();
   connection = null;
-  server = null;
+  serverAPI = null;
 }
 
 async function connect() {
-  if (server) return;
+  if (serverAPI) return;
   connection = await WebSocketConnection.connect(process.env.WEBSOCKET_URL!, process.env.AUTH_TOKEN!);
-  server = new MinecraftServer(connection);
+  serverAPI = new MinecraftServer(connection);
 
-  connection.on('close', () => console.log('Connection closed.'));
+  connection.on('close', () => console.log("Connection closed."));
   connection.on('error', (error) => console.error(error));
   connection.on('max_reconnects_reached', () => {
     console.error('Maximum reconnect attempts reached.');
-    closeConnection();
+    disconnect();
     updateEmbed().catch(console.error);
   });
 
-  server.on('error', (error) => console.error('Connection error: ', error));
+  serverAPI.on('error', (error) => console.error('Connection error: ', error));
 
   // Notifications
-  server.on(Notifications.PLAYER_JOINED, user => {
+  serverAPI.on(Notifications.PLAYER_JOINED, user => {
     console.log(`${user.name} joined.`);
     updateEmbed().catch(console.error);
   });
-  server.on(Notifications.PLAYER_LEFT, user => {
+  serverAPI.on(Notifications.PLAYER_LEFT, user => {
     console.log(`${user.name} left.`);
     updateEmbed().catch(console.error);
   });
@@ -60,8 +62,8 @@ async function updateEmbed() {
     }
 
     // Embed set based on whether server is active
-    const playerList = await server?.getConnectedPlayers();
-    const embed = server
+    const playerList = await serverAPI?.getConnectedPlayers();
+    const embed = serverAPI
       ? liveEmbed(playerList)
       : deadEmbed(Date.now());
 
@@ -81,6 +83,16 @@ async function updateEmbed() {
     embedUpdateInProgress = false;
   }
 }
+
+function isServiceActive() {
+  try {
+    execSync(`systemctl is-active --quiet ${process.env.SERVICE}`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 
 client.once(Events.ClientReady, async c => {
   console.log(`Ready! Logged in as ${c.user.tag}`);
@@ -103,40 +115,54 @@ client.on(Events.InteractionCreate, async (interaction) => {
   const command = interaction.commandName;
 
   if (command == 'start') {
-    if (server) {
+    if (serverAPI) {
       await interaction.reply({ content: "Server is already running.", flags: MessageFlags.Ephemeral });
       return;
     }
 
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-    exec(`sudo systemctl start ${process.env.SERVICE}`, async (error) => {
-      if (error) {
-        console.error(`Start failed: ${error.message}`);
-        await interaction.editReply(`Failed to start server: ${error.message}`);
-        return;
-      }
-      await interaction.editReply(`Server started.`);
-      try {
-        await connect();
-        await updateEmbed();
-      } catch (error) {
-        console.error(`Connecting to the websocket failed: ${error}`);
-      }
+    try {
+      await execAsync(`sudo systemctl start ${process.env.SERVICE}`);
+      await interaction.editReply('Server started.');
+    } catch (error) {
+      console.error(error);
+      await interaction.editReply('Failed to start the server.');
+      return;
+    }
 
-    });
+    try {
+      await connect();
+      await updateEmbed();
+    } catch (error) {
+      console.error(`Connecting to the websocket failed: ${error}`);
+    }
   }
-  if (command == 'stop') {
-    if (!server) {
+  else if (command == 'stop') {
+    if (serverAPI) {
+      await serverAPI.stop();
+      disconnect();
+      await interaction.reply({ content: 'Server stopped.', flags: MessageFlags.Ephemeral });
+      await updateEmbed();
+      return;
+    }
+    if (!isServiceActive()) {
       await interaction.reply({ content: "Server is not running.", flags: MessageFlags.Ephemeral });
       return;
     }
-    await server.stop();
-    closeConnection();
-    await interaction.reply({ content: "Server stopped.", flags: MessageFlags.Ephemeral });
-    await updateEmbed();
+
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+    try {
+      await execAsync(`sudo systemctl stop ${process.env.SERVICE}`);
+      await interaction.editReply('Server stopped.');
+      await updateEmbed();
+    } catch (error) {
+      console.error(error);
+      await interaction.editReply('Failed to stop the server.');
+    }
   }
-})
+});
 
 
 client.login(process.env.DISCORD_TOKEN);
