@@ -99,12 +99,16 @@ client.once(Events.ClientReady, async c => {
   try {
     channel = await client.channels.fetch(process.env.CHANNEL_ID!) as TextChannel;
   } catch (error) {
-    console.error(`Unable to connect to text channel: ${error}`)
+    console.error(`Unable to connect to text channel: ${error}`);
   }
   // Attempt to connect to the server if it is already running
+  console.log("Attemping to connect to existing websocket...");
   try {
     await connect();
-  } catch { }
+    console.log("Connected to websocket");
+  } catch {
+    console.log("No websocket found");
+  }
 
   await updateEmbed();
 });
@@ -115,7 +119,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
   const command = interaction.commandName;
 
   if (command == 'start') {
+    console.log("Start command invoked");
     if (serverAPI) {
+      await interaction.reply({ content: "Server is already running.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+
+    if (isServiceActive()) {
       await interaction.reply({ content: "Server is already running.", flags: MessageFlags.Ephemeral });
       return;
     }
@@ -139,6 +149,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
   }
   else if (command == 'stop') {
+    console.log("Stop command invoked");
     if (serverAPI) {
       await serverAPI.stop();
       disconnect();
